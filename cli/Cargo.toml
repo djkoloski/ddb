@@ -1,0 +1,12 @@
+[package]
+name = "ddb_cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ddb.workspace = true
+libc.workspace = true
+
+[[bin]]
+name = "ddb"
+path = "src/main.rs"
