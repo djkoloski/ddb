@@ -216,6 +216,14 @@ define_errors! {
         SyscallFailed { name: &'static str, errno: Errno },
         #[error("{0}")]
         InvalidPath(NulError),
+        #[error("child message too short (expected 9 bytes, got {0} bytes)")]
+        MessageTooShort(usize),
+        #[error("invalid child messaage (id={id}, status={status}])")]
+        InvalidMessage { id: u8, status: i64 },
+        #[error("ptrace failed in launched process with status {0}")]
+        FailedToPtraceChild(i64),
+        #[error("exec failed in launched process with status {0}")]
+        FailedToExecChild(i64),
     }
 
     pub enum NonFatal {

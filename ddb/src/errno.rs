@@ -15,6 +15,12 @@ impl Errno {
     }
 }
 
+impl PartialEq<c_int> for Errno {
+    fn eq(&self, other: &c_int) -> bool {
+        c_int::eq(&self.value, other)
+    }
+}
+
 impl fmt::Display for Errno {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         macro_rules! match_errno {

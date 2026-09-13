@@ -1,5 +1,6 @@
 mod errno;
 mod error;
+mod pipe;
 mod signal;
 
 use core::{
@@ -12,10 +13,11 @@ use std::{ffi::CString, path::Path};
 use libc::{
     PTRACE_ATTACH, PTRACE_CONT, PTRACE_DETACH, PTRACE_TRACEME, SIGCONT,
     SIGKILL, SIGSTOP, WEXITSTATUS, WIFEXITED, WIFSIGNALED, WSTOPSIG, WTERMSIG,
-    execlp, fork, kill, pid_t, ptrace, waitpid,
+    execlp, exit, fork, kill, pid_t, ptrace, waitpid,
 };
 
 pub use self::{errno::*, error::*, signal::*};
+use crate::pipe::pipe;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -41,12 +43,13 @@ pub struct StateChange {
     pub signal: Signal,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum DropAction {
     Detach,
     DetachAndTerminate,
 }
 
+#[derive(Debug)]
 pub struct Process {
     pid: pid_t,
     state: Option<State>,
@@ -105,12 +108,56 @@ impl Process {
     }
 
     pub fn launch_attached(path: &Path) -> Result<Self, Fatal> {
+        const PTRACE_FAILED: u8 = 0;
+        const EXEC_FAILED: u8 = 1;
+
+        fn serialize(id: u8, status: i64) -> [u8; 9] {
+            let mut result = [0; 9];
+            result[0] = id;
+            result[1..].copy_from_slice(&status.to_le_bytes());
+            result
+        }
+
+        fn deserialize(buf: &[u8]) -> Result<(u8, i64), Fatal> {
+            if buf.len() != 9 {
+                return Err(Fatal::MessageTooShort(buf.len()));
+            }
+            let status = i64::from_le_bytes([
+                buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8],
+            ]);
+            Ok((buf[0], status))
+        }
+
+        let path = CString::new(path.as_os_str().as_encoded_bytes())
+            .map_err(Fatal::InvalidPath)?;
+
+        let (mut reader, mut writer) = pipe(true)?;
+
         let status = unsafe { fork() };
         if status < 0 {
             return Err(Fatal::syscall("fork"));
         } else if status != 0 {
+            drop(writer);
+            let data = reader.read()?;
+            drop(reader);
+
+            if !data.is_empty() {
+                let (id, status) = deserialize(&data)?;
+                match id {
+                    PTRACE_FAILED => {
+                        return Err(Fatal::FailedToPtraceChild(status));
+                    }
+                    EXEC_FAILED => {
+                        return Err(Fatal::FailedToExecChild(status));
+                    }
+                    _ => return Err(Fatal::InvalidMessage { id, status }),
+                }
+            }
+
             return Self::bind(status, DropAction::DetachAndTerminate);
         }
+
+        drop(reader);
 
         let status = unsafe {
             ptrace(
@@ -121,16 +168,20 @@ impl Process {
             )
         };
         if status < 0 {
-            return Err(Fatal::syscall("ptrace"));
+            writer.write(&serialize(PTRACE_FAILED, status))?;
+            unsafe {
+                exit(-1);
+            }
         }
 
-        let path = CString::new(path.as_os_str().as_encoded_bytes())
-            .map_err(Fatal::InvalidPath)?;
         let status = unsafe {
             execlp(path.as_ptr(), path.as_ptr(), null_mut::<c_char>())
         };
         if status < 0 {
-            return Err(Fatal::syscall("execlp"));
+            writer.write(&serialize(EXEC_FAILED, status as i64))?;
+            unsafe {
+                exit(-1);
+            }
         }
 
         unreachable!();
