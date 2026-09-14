@@ -25,6 +25,7 @@ impl fmt::Display for State {
     }
 }
 
+#[derive(Debug)]
 #[must_use]
 pub struct StateChange {
     pub state: State,
@@ -144,6 +145,8 @@ impl Attachment {
         } else {
             (State::Stopped, libc::WSTOPSIG(status))
         };
+
+        self.state = state;
 
         Ok(StateChange {
             state,

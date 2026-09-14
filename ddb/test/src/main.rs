@@ -13,6 +13,7 @@ fn main() {
                 libc::write(fd, args.as_ptr().cast(), args.len());
             }
         }
+        Some("exit") => (),
         Some(_) => eprintln!("unrecognized command"),
     }
 }
