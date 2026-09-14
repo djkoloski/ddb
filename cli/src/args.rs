@@ -29,10 +29,10 @@ impl fmt::Display for ParseArgsError {
 }
 
 pub struct Args {
-    pub command: Command,
+    pub command: Subcommand,
 }
 
-pub enum Command {
+pub enum Subcommand {
     Attach { pid: pid_t },
     Launch { path: PathBuf },
 }
@@ -55,9 +55,9 @@ impl Args {
                     .map_err(ParseArgsError::PidNotUtf8)?
                     .parse()
                     .map_err(ParseArgsError::PidNotInteger)?;
-                command = Some(Command::Attach { pid });
+                command = Some(Subcommand::Attach { pid });
             } else {
-                command = Some(Command::Launch {
+                command = Some(Subcommand::Launch {
                     path: PathBuf::from(next),
                 });
             }

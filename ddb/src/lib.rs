@@ -4,12 +4,9 @@ mod error;
 mod pipe;
 mod process;
 mod signal;
-mod state;
 mod syscall;
 
-pub use self::{
-    attachment::*, errno::*, error::*, process::*, signal::*, state::*,
-};
+pub use self::{attachment::*, errno::*, error::*, process::*, signal::*};
 
 #[cfg(test)]
 mod tests {

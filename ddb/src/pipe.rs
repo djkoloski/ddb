@@ -1,11 +1,9 @@
 use core::ffi::c_int;
 
-use libc::O_CLOEXEC;
-
 use crate::{Fatal, syscall};
 
 pub fn pipe(close_on_exec: bool) -> Result<(ReadEnd, WriteEnd), Fatal> {
-    let flags = if close_on_exec { O_CLOEXEC } else { 0 };
+    let flags = if close_on_exec { libc::O_CLOEXEC } else { 0 };
     let mut fds = [0; 2];
     unsafe {
         syscall::pipe2(fds.as_mut_ptr(), flags)?;

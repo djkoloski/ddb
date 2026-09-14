@@ -67,6 +67,10 @@ wrap_syscalls! {
         file: *const c_char,
         arg0: *const *const c_char,
     ) -> c_int;
+
+    pub unsafe fn open(path: *const c_char, flags: c_int) -> c_int;
+
+    pub unsafe fn dup2(oldfd: c_int, newfd: c_int) -> c_int;
 }
 
 pub use libc::exit;

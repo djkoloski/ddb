@@ -7,10 +7,10 @@ use std::{
     process::ExitCode,
 };
 
-use ddb::{Attachment, Process, Recoverable as _, StateChange};
+use ddb::{Attachment, Command, Process, Recoverable as _};
 
 use crate::{
-    args::{Args, Command},
+    args::{Args, Subcommand},
     error::Error,
 };
 
@@ -43,9 +43,9 @@ impl Cli {
         let args = Args::parse()?;
 
         let (process, attachment) = match args.command {
-            Command::Attach { pid } => (None, Attachment::attach(pid)?),
-            Command::Launch { path } => {
-                let (p, a) = Attachment::launch(&path)?;
+            Subcommand::Attach { pid } => (None, Attachment::attach(pid)?),
+            Subcommand::Launch { path } => {
+                let (p, a) = Attachment::spawn_attached(Command::new(&path))?;
                 (Some(p), a)
             }
         };
@@ -109,7 +109,7 @@ impl Cli {
                 }
             }
             "w" | "wait" => {
-                let change = StateChange::wait_for_pid(self.attachment.pid())?;
+                let change = self.attachment.wait_for_state_change()?;
                 let pid = self.attachment.pid();
                 println!(
                     "process {pid} {} with status {}",

@@ -1,34 +1,60 @@
 use core::ptr::null;
-use std::{ffi::CString, path::Path};
+use std::ffi::{CString, OsStr, OsString};
 
-use libc::{SIGKILL, pid_t};
+use libc::pid_t;
 
-use crate::{Fatal, pipe::pipe, state::StateChange, syscall};
+use crate::{Fatal, pipe::pipe, syscall};
 
-#[derive(Debug)]
-pub struct Process {
-    pid: pid_t,
+pub struct Command {
+    program: OsString,
+    pre_exec: Option<Box<dyn FnOnce() -> Result<(), Fatal>>>,
+    args: Vec<OsString>,
 }
 
-impl Drop for Process {
-    fn drop(&mut self) {
-        if let Err(e) = self.terminate() {
-            eprintln!("failed to terminate pid {} in drop: {e}", self.pid);
+impl Command {
+    pub fn new(program: impl AsRef<OsStr>) -> Self {
+        Self {
+            program: program.as_ref().to_owned(),
+            pre_exec: None,
+            args: Vec::new(),
         }
     }
-}
 
-impl Process {
-    pub fn pid(&self) -> pid_t {
-        self.pid
+    pub fn arg(mut self, arg: impl AsRef<OsStr>) -> Self {
+        self.args.push(arg.as_ref().to_owned());
+        self
     }
 
-    pub fn launch_with_pre_exec(
-        path: impl AsRef<Path>,
-        pre_exec: impl FnOnce() -> Result<(), Fatal>,
-    ) -> Result<Self, Fatal> {
-        let path = CString::new(path.as_ref().as_os_str().as_encoded_bytes())
-            .map_err(Fatal::InvalidPath)?;
+    pub fn args<I>(mut self, args: I) -> Self
+    where
+        I: Iterator,
+        I::Item: AsRef<OsStr>,
+    {
+        for arg in args {
+            self = self.arg(arg);
+        }
+        self
+    }
+
+    pub fn pre_exec(
+        mut self,
+        pre_exec: impl FnOnce() -> Result<(), Fatal> + 'static,
+    ) -> Self {
+        if let Some(existing_pre_exec) = self.pre_exec.take() {
+            self.pre_exec = Some(Box::new(|| {
+                (existing_pre_exec)()?;
+                (pre_exec)()
+            }))
+        } else {
+            self.pre_exec = Some(Box::new(pre_exec));
+        }
+
+        self
+    }
+
+    pub fn spawn(self) -> Result<Process, Fatal> {
+        let path = CString::new(self.program.as_encoded_bytes())
+            .map_err(Fatal::InvalidArg)?;
 
         let (mut reader, mut writer) = pipe(true)?;
 
@@ -36,13 +62,36 @@ impl Process {
         if status == 0 {
             drop(reader);
 
+            // Replace stdin/stdout/stderr with /dev/null
+            let dev_null =
+                unsafe { syscall::open(c"/dev/null".as_ptr(), libc::O_RDWR)? };
+            unsafe {
+                syscall::dup2(dev_null, libc::STDIN_FILENO)?;
+                syscall::dup2(dev_null, libc::STDOUT_FILENO)?;
+                syscall::dup2(dev_null, libc::STDERR_FILENO)?;
+                syscall::close(dev_null)?;
+            }
+
             let child_main = || -> Result<(), Fatal> {
-                pre_exec()?;
+                if let Some(f) = self.pre_exec {
+                    (f)()?;
+                }
+
+                let args = self
+                    .args
+                    .iter()
+                    .map(|a| {
+                        CString::new(a.as_encoded_bytes())
+                            .map_err(Fatal::InvalidArg)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mut argv = Vec::with_capacity(args.len() + 2);
+                argv.push(path.as_ptr());
+                argv.extend(args.iter().map(|a| a.as_ptr()));
+                argv.push(null());
+
                 unsafe {
-                    syscall::execvp(
-                        path.as_ptr(),
-                        [path.as_ptr(), null()].as_ptr(),
-                    )?;
+                    syscall::execvp(path.as_ptr(), argv.as_ptr())?;
                 }
                 unreachable!()
             };
@@ -66,20 +115,34 @@ impl Process {
                 String::from_utf8(data).map_err(Fatal::InvalidChildMessage)?;
             return Err(Fatal::ChildFailed(e));
         }
-        Ok(Self { pid: status })
+        Ok(Process { pid: status })
     }
+}
 
-    pub fn launch(path: impl AsRef<Path>) -> Result<Self, Fatal> {
-        Self::launch_with_pre_exec(path.as_ref(), || Ok(()))
+#[derive(Debug)]
+pub struct Process {
+    pid: pid_t,
+}
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        if let Err(e) = self.terminate() {
+            eprintln!("failed to terminate pid {} in drop: {e}", self.pid);
+        }
+    }
+}
+
+impl Process {
+    pub fn pid(&self) -> pid_t {
+        self.pid
     }
 
     fn terminate(&mut self) -> Result<(), Fatal> {
         unsafe {
-            syscall::kill(self.pid, SIGKILL)?;
+            syscall::kill(self.pid, libc::SIGKILL)?;
         }
 
-        // TODO: check the state change for unexpected behavior
-        let _ = StateChange::wait_for_pid(self.pid)?;
+        let _ = unsafe { syscall::waitpid(self.pid, &mut 0, 0)? };
 
         Ok(())
     }

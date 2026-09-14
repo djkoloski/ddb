@@ -1,11 +1,11 @@
 mod util {
-    use std::{fs::File, io::Read, path::PathBuf};
+    use std::{fs::File, io::Read};
 
-    use ddb::Errno;
+    use ddb::{Command, Errno};
     use libc::{kill, pid_t};
 
-    pub fn test_binary() -> PathBuf {
-        PathBuf::from(std::env::var_os("CARGO_BIN_EXE_ddb_test").unwrap())
+    pub fn test_binary() -> Command {
+        Command::new(std::env::var_os("CARGO_BIN_EXE_ddb_test").unwrap())
     }
 
     pub fn process_exists(pid: pid_t) -> bool {
@@ -43,35 +43,73 @@ mod util {
 }
 
 mod process {
-    use ddb::Process;
+    use ddb::Command;
 
     use super::util::*;
 
     #[test]
-    fn launch_no_such_program() {
-        Process::launch("nonexistent").unwrap_err();
+    fn launch_fail_no_such_program() {
+        Command::new("nonexistent").spawn().unwrap_err();
     }
 
     #[test]
-    fn launch_success() {
-        let process = Process::launch(test_binary()).unwrap();
+    fn launch() {
+        let process = test_binary().spawn().unwrap();
         assert!(process_exists(process.pid()));
+    }
+
+    #[test]
+    fn kill_on_drop() {
+        let process = test_binary().spawn().unwrap();
+
+        let pid = process.pid();
+        assert!(process_exists(pid));
+        drop(process);
+        // This test is potentially flaky because the PID of the spawned process
+        // could be reused before we check again.
+        assert!(!process_exists(pid));
+    }
+
+    #[test]
+    fn test_args() {
+        let mut pipe = [0; 2];
+        let status = unsafe { libc::pipe(pipe.as_mut_ptr()) };
+        assert!(status >= 0);
+
+        let args = vec!["1234", "abcd", "hello world"];
+        let expected = args.join(",");
+        let _process = test_binary()
+            .arg("echo")
+            .arg(pipe[1].to_string())
+            .args(args.into_iter())
+            .spawn()
+            .unwrap();
+
+        const BUF_SIZE: usize = 1024;
+        let mut buf = [0u8; BUF_SIZE];
+        let bytes =
+            unsafe { libc::read(pipe[0], buf.as_mut_ptr().cast(), BUF_SIZE) };
+        assert!(bytes >= 0);
+        assert_eq!(str::from_utf8(&buf[..bytes as usize]).unwrap(), expected);
     }
 }
 
 mod attachment {
-    use ddb::{Attachment, Process, State};
+    use core::assert_matches;
+
+    use ddb::{Attachment, Command, State};
 
     use super::util::*;
 
     #[test]
     fn launch_no_such_program() {
-        Attachment::launch("nonexistent").unwrap_err();
+        Attachment::spawn_attached(Command::new("nonexistent")).unwrap_err();
     }
 
     #[test]
     fn launch_success() {
-        let (process, _attachment) = Attachment::launch(test_binary()).unwrap();
+        let (process, _attachment) =
+            Attachment::spawn_attached(test_binary()).unwrap();
         assert!(process_exists(process.pid()));
         assert_eq!(
             read_process_state(process.pid()),
@@ -86,7 +124,7 @@ mod attachment {
 
     #[test]
     fn attach_success() {
-        let process = Process::launch(test_binary()).unwrap();
+        let process = test_binary().spawn().unwrap();
         assert!(process_exists(process.pid()));
         assert_eq!(read_process_state(process.pid()), ProcessState::Running);
 
@@ -96,5 +134,27 @@ mod attachment {
             ProcessState::TracingStopped
         );
         assert_eq!(attachment.state(), State::Stopped);
+    }
+
+    #[test]
+    fn launch_resume_success() {
+        let (process, mut attachment) =
+            Attachment::spawn_attached(test_binary()).unwrap();
+        attachment.resume().unwrap();
+        assert_matches!(
+            read_process_state(process.pid()),
+            ProcessState::Running | ProcessState::Sleeping,
+        );
+    }
+
+    #[test]
+    fn attach_resume_success() {
+        let process = test_binary().spawn().unwrap();
+        let mut attachment = Attachment::attach(process.pid()).unwrap();
+        attachment.resume().unwrap();
+        assert_matches!(
+            read_process_state(process.pid()),
+            ProcessState::Running | ProcessState::Sleeping,
+        )
     }
 }

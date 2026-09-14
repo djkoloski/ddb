@@ -1,16 +1,35 @@
-use core::ptr::null_mut;
-use std::path::Path;
+use core::{fmt, ptr::null_mut};
 
-use libc::{
-    PTRACE_ATTACH, PTRACE_CONT, PTRACE_DETACH, PTRACE_TRACEME, SIGCONT,
-    SIGSTOP, pid_t,
-};
+use libc::pid_t;
 
-use crate::{
-    Error, Fatal, NonFatal, Process,
-    state::{State, StateChange},
-    syscall,
-};
+use crate::{Command, Error, Fatal, NonFatal, Process, Signal, syscall};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State {
+    Running,
+    Stopped,
+    Exited,
+    Terminated,
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Running => write!(f, "running")?,
+            Self::Stopped => write!(f, "stopped")?,
+            Self::Exited => write!(f, "exited")?,
+            Self::Terminated => write!(f, "terminated")?,
+        }
+
+        Ok(())
+    }
+}
+
+#[must_use]
+pub struct StateChange {
+    pub state: State,
+    pub signal: Signal,
+}
 
 #[derive(Debug)]
 pub struct Attachment {
@@ -32,21 +51,29 @@ impl Attachment {
     }
 
     fn bind(pid: pid_t) -> Result<Self, Fatal> {
-        // TODO: check the state change for unexpected behavior?
-        let _ = StateChange::wait_for_pid(pid)?;
-        Ok(Self {
+        let mut attachment = Self {
             pid,
             state: State::Stopped,
-        })
+        };
+        // TODO: check the state change for unexpected behavior?
+        let _ = attachment.wait_for_state_change()?;
+        Ok(attachment)
     }
 
-    pub fn launch(path: impl AsRef<Path>) -> Result<(Process, Self), Fatal> {
-        let process = Process::launch_with_pre_exec(path, || {
-            unsafe {
-                syscall::ptrace(PTRACE_TRACEME, 0, null_mut(), null_mut())?;
-            }
-            Ok(())
-        })?;
+    pub fn spawn_attached(command: Command) -> Result<(Process, Self), Fatal> {
+        let process = command
+            .pre_exec(|| {
+                unsafe {
+                    syscall::ptrace(
+                        libc::PTRACE_TRACEME,
+                        0,
+                        null_mut(),
+                        null_mut(),
+                    )?;
+                }
+                Ok(())
+            })
+            .spawn()?;
         let attachment = Self::bind(process.pid())?;
 
         Ok((process, attachment))
@@ -54,7 +81,7 @@ impl Attachment {
 
     pub fn attach(pid: pid_t) -> Result<Self, Fatal> {
         unsafe {
-            syscall::ptrace(PTRACE_ATTACH, pid, null_mut(), null_mut())?;
+            syscall::ptrace(libc::PTRACE_ATTACH, pid, null_mut(), null_mut())?;
         }
         Self::bind(pid)
     }
@@ -73,7 +100,12 @@ impl Attachment {
         }
 
         unsafe {
-            syscall::ptrace(PTRACE_CONT, self.pid, null_mut(), null_mut())?;
+            syscall::ptrace(
+                libc::PTRACE_CONT,
+                self.pid,
+                null_mut(),
+                null_mut(),
+            )?;
         }
 
         self.state = State::Running;
@@ -90,24 +122,49 @@ impl Attachment {
         }
 
         unsafe {
-            syscall::kill(self.pid, SIGSTOP)?;
+            syscall::kill(self.pid, libc::SIGSTOP)?;
         }
 
         // TODO: check the state change for unexpected behavior?
-        let _ = StateChange::wait_for_pid(self.pid)?;
+        let _ = self.wait_for_state_change()?;
 
         Ok(())
+    }
+
+    pub fn wait_for_state_change(&mut self) -> Result<StateChange, Fatal> {
+        let mut status = 0;
+        unsafe {
+            syscall::waitpid(self.pid, &mut status, 0)?;
+        }
+
+        let (state, signal) = if libc::WIFEXITED(status) {
+            (State::Exited, libc::WEXITSTATUS(status))
+        } else if libc::WIFSIGNALED(status) {
+            (State::Terminated, libc::WTERMSIG(status))
+        } else {
+            (State::Stopped, libc::WSTOPSIG(status))
+        };
+
+        Ok(StateChange {
+            state,
+            signal: Signal::new(signal),
+        })
     }
 
     fn detach(&mut self) -> Result<(), Error> {
         self.stop()?;
 
         unsafe {
-            syscall::ptrace(PTRACE_DETACH, self.pid, null_mut(), null_mut())?;
+            syscall::ptrace(
+                libc::PTRACE_DETACH,
+                self.pid,
+                null_mut(),
+                null_mut(),
+            )?;
         }
 
         unsafe {
-            syscall::kill(self.pid, SIGCONT)?;
+            syscall::kill(self.pid, libc::SIGCONT)?;
         }
 
         Ok(())

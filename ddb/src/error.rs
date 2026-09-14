@@ -1,6 +1,6 @@
 use std::{ffi::NulError, string::FromUtf8Error};
 
-use crate::{Errno, state::State};
+use crate::{Errno, State};
 
 macro_rules! define_errors {
     (
@@ -220,7 +220,7 @@ define_errors! {
         #[error("`{name}` failed: {errno}")]
         SyscallFailed { name: &'static str, errno: Errno },
         #[error("{0}")]
-        InvalidPath(NulError),
+        InvalidArg(NulError),
         #[error("invalid child messaage: {0}")]
         InvalidChildMessage(FromUtf8Error),
         #[error("child process failed: {0}")]
