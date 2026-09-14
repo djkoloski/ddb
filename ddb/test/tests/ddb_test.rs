@@ -94,32 +94,32 @@ mod process {
     }
 }
 
-mod attachment {
+mod debugger {
     use core::assert_matches;
 
-    use ddb::{Attachment, Command, State};
+    use ddb::{Command, Debugger, State};
 
     use super::util::*;
 
     #[test]
     fn launch_fail_no_such_program() {
-        Attachment::spawn_attached(Command::new("nonexistent")).unwrap_err();
+        Debugger::spawn_attached(Command::new("nonexistent")).unwrap_err();
     }
 
     #[test]
     fn launch() {
-        let (_process, attachment) =
-            Attachment::spawn_attached(test_binary()).unwrap();
-        assert!(process_exists(attachment.pid()));
+        let (_process, debugger) =
+            Debugger::spawn_attached(test_binary()).unwrap();
+        assert!(process_exists(debugger.pid()));
         assert_eq!(
-            read_process_state(attachment.pid()),
+            read_process_state(debugger.pid()),
             ProcessState::TracingStopped
         );
     }
 
     #[test]
     fn attach_fail_invalid_pid() {
-        Attachment::attach(0).unwrap_err();
+        Debugger::attach(0).unwrap_err();
     }
 
     #[test]
@@ -128,21 +128,21 @@ mod attachment {
         assert!(process_exists(process.pid()));
         assert_eq!(read_process_state(process.pid()), ProcessState::Running);
 
-        let attachment = Attachment::attach(process.pid()).unwrap();
+        let debugger = Debugger::attach(process.pid()).unwrap();
         assert_eq!(
-            read_process_state(attachment.pid()),
+            read_process_state(debugger.pid()),
             ProcessState::TracingStopped
         );
-        assert_eq!(attachment.state(), State::Stopped);
+        assert_eq!(debugger.state(), State::Stopped);
     }
 
     #[test]
     fn launch_resume() {
-        let (_process, mut attachment) =
-            Attachment::spawn_attached(test_binary()).unwrap();
-        attachment.resume().unwrap();
+        let (_process, mut debugger) =
+            Debugger::spawn_attached(test_binary()).unwrap();
+        debugger.resume().unwrap();
         assert_matches!(
-            read_process_state(attachment.pid()),
+            read_process_state(debugger.pid()),
             ProcessState::Running | ProcessState::Sleeping,
         );
     }
@@ -150,20 +150,20 @@ mod attachment {
     #[test]
     fn attach_resume() {
         let process = test_binary().spawn().unwrap();
-        let mut attachment = Attachment::attach(process.pid()).unwrap();
-        attachment.resume().unwrap();
+        let mut debugger = Debugger::attach(process.pid()).unwrap();
+        debugger.resume().unwrap();
         assert_matches!(
-            read_process_state(attachment.pid()),
+            read_process_state(debugger.pid()),
             ProcessState::Running | ProcessState::Sleeping,
         )
     }
 
     #[test]
     fn launch_fail_resume_terminated() {
-        let (_process, mut attachment) =
-            Attachment::spawn_attached(test_binary().arg("exit")).unwrap();
-        attachment.resume().unwrap();
-        let _ = attachment.wait_for_state_change().unwrap();
-        attachment.resume().unwrap_err();
+        let (_process, mut debugger) =
+            Debugger::spawn_attached(test_binary().arg("exit")).unwrap();
+        debugger.resume().unwrap();
+        let _ = debugger.wait_for_state_change().unwrap();
+        debugger.resume().unwrap_err();
     }
 }

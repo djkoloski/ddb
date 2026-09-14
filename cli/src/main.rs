@@ -7,7 +7,7 @@ use std::{
     process::ExitCode,
 };
 
-use ddb::{Attachment, Command, Process, Recoverable as _};
+use ddb::{Command, Debugger, Process, Recoverable as _};
 
 use crate::{
     args::{Args, Subcommand},
@@ -29,7 +29,7 @@ struct Cli {
     // The spawned process, if any
     #[expect(unused)]
     process: Option<Process>,
-    attachment: Attachment,
+    debugger: Debugger,
     is_running: bool,
     history: VecDeque<String>,
 }
@@ -42,24 +42,24 @@ impl Cli {
     fn new() -> Result<Self, Error> {
         let args = Args::parse()?;
 
-        let (process, attachment) = match args.command {
-            Subcommand::Attach { pid } => (None, Attachment::attach(pid)?),
+        let (process, debugger) = match args.command {
+            Subcommand::Attach { pid } => (None, Debugger::attach(pid)?),
             Subcommand::Launch { path } => {
-                let (p, a) = Attachment::spawn_attached(Command::new(&path))?;
+                let (p, a) = Debugger::spawn_attached(Command::new(&path))?;
                 (Some(p), a)
             }
         };
 
         Ok(Self {
             process,
-            attachment,
+            debugger,
             is_running: true,
             history: VecDeque::new(),
         })
     }
 
     fn execute(&mut self) -> Result<(), Error> {
-        println!("attached to process {}", self.attachment.pid());
+        println!("attached to process {}", self.debugger.pid());
 
         let mut line = String::new();
         while self.is_running {
@@ -103,14 +103,14 @@ impl Cli {
                 self.is_running = false;
             }
             "c" | "continue" => {
-                if let Err(e) = self.attachment.resume().recover()? {
+                if let Err(e) = self.debugger.resume().recover()? {
                     eprintln!("{e}");
                     return Ok(());
                 }
             }
             "w" | "wait" => {
-                let change = self.attachment.wait_for_state_change()?;
-                let pid = self.attachment.pid();
+                let change = self.debugger.wait_for_state_change()?;
+                let pid = self.debugger.pid();
                 println!(
                     "process {pid} {} with status {}",
                     change.state, change.signal

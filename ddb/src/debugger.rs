@@ -33,12 +33,12 @@ pub struct StateChange {
 }
 
 #[derive(Debug)]
-pub struct Attachment {
+pub struct Debugger {
     pid: pid_t,
     state: State,
 }
 
-impl Drop for Attachment {
+impl Drop for Debugger {
     fn drop(&mut self) {
         if let Err(e) = self.detach() {
             eprintln!("failed to detach pid {} in drop: {e}", self.pid);
@@ -46,7 +46,7 @@ impl Drop for Attachment {
     }
 }
 
-impl Attachment {
+impl Debugger {
     pub fn pid(&self) -> pid_t {
         self.pid
     }

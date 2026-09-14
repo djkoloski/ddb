@@ -1,4 +1,4 @@
-mod attachment;
+mod debugger;
 mod errno;
 mod error;
 mod pipe;
@@ -6,7 +6,7 @@ mod process;
 mod signal;
 mod syscall;
 
-pub use self::{attachment::*, errno::*, error::*, process::*, signal::*};
+pub use self::{debugger::*, errno::*, error::*, process::*, signal::*};
 
 #[cfg(test)]
 mod tests {
