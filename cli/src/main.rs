@@ -7,7 +7,7 @@ use std::{
     process::ExitCode,
 };
 
-use ddb::{Process, Recoverable as _};
+use ddb::{Attachment, Process, Recoverable as _, StateChange};
 
 use crate::{
     args::{Args, Command},
@@ -26,7 +26,10 @@ fn main() -> ExitCode {
 const HISTORY_LIMIT: usize = 100;
 
 struct Cli {
-    process: Process,
+    // The spawned process, if any
+    #[expect(unused)]
+    process: Option<Process>,
+    attachment: Attachment,
     is_running: bool,
     history: VecDeque<String>,
 }
@@ -39,20 +42,24 @@ impl Cli {
     fn new() -> Result<Self, Error> {
         let args = Args::parse()?;
 
-        let process = match args.command {
-            Command::Attach { pid } => Process::attach(pid)?,
-            Command::Launch { path } => Process::launch_attached(&path)?,
+        let (process, attachment) = match args.command {
+            Command::Attach { pid } => (None, Attachment::attach(pid)?),
+            Command::Launch { path } => {
+                let (p, a) = Attachment::launch(&path)?;
+                (Some(p), a)
+            }
         };
 
         Ok(Self {
             process,
+            attachment,
             is_running: true,
             history: VecDeque::new(),
         })
     }
 
     fn execute(&mut self) -> Result<(), Error> {
-        println!("attached to process {}", self.process.pid());
+        println!("attached to process {}", self.attachment.pid());
 
         let mut line = String::new();
         while self.is_running {
@@ -96,14 +103,14 @@ impl Cli {
                 self.is_running = false;
             }
             "c" | "continue" => {
-                if let Err(e) = self.process.resume().recover()? {
+                if let Err(e) = self.attachment.resume().recover()? {
                     eprintln!("{e}");
                     return Ok(());
                 }
             }
             "w" | "wait" => {
-                let change = self.process.wait_for_state_change()?;
-                let pid = self.process.pid();
+                let change = StateChange::wait_for_pid(self.attachment.pid())?;
+                let pid = self.attachment.pid();
                 println!(
                     "process {pid} {} with status {}",
                     change.state, change.signal

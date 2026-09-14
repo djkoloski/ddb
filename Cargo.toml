@@ -1,5 +1,9 @@
 [workspace]
-members = ["cli", "ddb"]
+members = [
+    "cli",
+    "ddb",
+    "ddb/test",
+]
 resolver = "3"
 
 [workspace.package]

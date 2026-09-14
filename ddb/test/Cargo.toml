@@ -1,0 +1,12 @@
+[package]
+name = "ddb_test"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "ddb_test"
+test = false
+
+[dev-dependencies]
+ddb.workspace = true
+libc.workspace = true

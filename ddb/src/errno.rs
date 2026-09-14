@@ -13,6 +13,10 @@ impl Errno {
             value: unsafe { __errno_location().read() },
         }
     }
+
+    pub fn raw(&self) -> c_int {
+        self.value
+    }
 }
 
 impl PartialEq<c_int> for Errno {

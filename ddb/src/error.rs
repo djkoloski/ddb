@@ -1,10 +1,12 @@
-use std::ffi::NulError;
+use std::{ffi::NulError, string::FromUtf8Error};
 
-use crate::{Errno, State};
+use crate::{Errno, state::State};
 
 macro_rules! define_errors {
     (
-        pub enum Fatal {
+        #[fatal]
+        $(#[$fatal_metas:meta])*
+        pub enum $fatal:ident {
             $(
                 #[error($fatal_fmt:literal)]
                 $fatal_variant:ident
@@ -15,7 +17,9 @@ macro_rules! define_errors {
             ),* $(,)?
         }
 
-        pub enum NonFatal {
+        #[non_fatal]
+        $(#[$non_fatal_metas:meta])*
+        pub enum $non_fatal:ident {
             $(
                 #[error($nonfatal_fmt:literal)]
                 $nonfatal_variant:ident
@@ -28,38 +32,38 @@ macro_rules! define_errors {
     ) => {
         #[derive(::core::fmt::Debug)]
         pub struct Error {
-            fatal: Fatal,
+            fatal: $fatal,
         }
 
         impl Error {
-            pub fn recover(self) -> ::core::result::Result<NonFatal, Fatal> {
+            pub fn recover(self) -> ::core::result::Result<$non_fatal, $fatal> {
                 match self.fatal {
                     $(
-                        Fatal::$fatal_variant
+                        $fatal::$fatal_variant
                         $(
                             (_) if false => {
                                 let _: $fatal_tty; ::core::unreachable!()
                             }
-                            Fatal::$fatal_variant (_0__)
+                            $fatal::$fatal_variant (_0__)
                         )?
                         $({ $($fatal_sname),* })?
                         => Err(
-                            Fatal::$fatal_variant
+                            $fatal::$fatal_variant
                             $(({ let _: $fatal_tty; _0__ }))?
                             $({ $($fatal_sname),* })?
                         ),
                     )*
                     $(
-                        Fatal::$nonfatal_variant
+                        $fatal::$nonfatal_variant
                         $(
                             (_) if false => {
                                 let _: $nonfatal_tty; ::core::unreachable!()
                             }
-                            Fatal::$nonfatal_variant (_0__)
+                            $fatal::$nonfatal_variant (_0__)
                         )?
                         $({ $($nonfatal_sname),* })?
                         => Ok(
-                            NonFatal::$nonfatal_variant
+                            $non_fatal::$nonfatal_variant
                             $(({ let _: $nonfatal_tty; _0__ }))?
                             $({ $($nonfatal_sname),* })?
                         ),
@@ -77,14 +81,14 @@ macro_rules! define_errors {
             }
         }
 
-        impl From<Fatal> for Error {
-            fn from(fatal: Fatal) -> Self {
+        impl From<$fatal> for Error {
+            fn from(fatal: $fatal) -> Self {
                 Self { fatal }
             }
         }
 
-        impl From<NonFatal> for Error {
-            fn from(non_fatal: NonFatal) -> Self {
+        impl From<$non_fatal> for Error {
+            fn from(non_fatal: $non_fatal) -> Self {
                 Self {
                     fatal: non_fatal.worsen(),
                 }
@@ -92,7 +96,7 @@ macro_rules! define_errors {
         }
 
         #[derive(::core::fmt::Debug)]
-        pub enum Fatal {
+        pub enum $fatal {
             $(
                 $fatal_variant
                 $(($fatal_tty))?
@@ -107,7 +111,7 @@ macro_rules! define_errors {
             )*
         }
 
-        impl ::core::fmt::Display for Fatal {
+        impl ::core::fmt::Display for $fatal {
             fn fmt(
                 &self,
                 f__: &mut ::core::fmt::Formatter<'_>,
@@ -152,7 +156,7 @@ macro_rules! define_errors {
         }
 
         #[derive(Debug)]
-        pub enum NonFatal {
+        pub enum $non_fatal {
             $(
                 $nonfatal_variant
                 $(($nonfatal_tty))?
@@ -161,8 +165,8 @@ macro_rules! define_errors {
             )*
         }
 
-        impl NonFatal {
-            pub fn worsen(self) -> Fatal {
+        impl $non_fatal {
+            pub fn worsen(self) -> $fatal {
                 match self {
                     $(
                         Self::$nonfatal_variant
@@ -173,7 +177,7 @@ macro_rules! define_errors {
                             Self::$nonfatal_variant (_0__)
                         )?
                         $({ $($nonfatal_sname),* })?
-                        => Fatal::$nonfatal_variant
+                        => $fatal::$nonfatal_variant
                         $(({ let _: $nonfatal_tty; _0__ }))?
                         $({ $($nonfatal_sname),* })?,
                     )*
@@ -181,7 +185,7 @@ macro_rules! define_errors {
             }
         }
 
-        impl ::core::fmt::Display for NonFatal {
+        impl ::core::fmt::Display for $non_fatal {
             fn fmt(
                 &self,
                 f__: &mut ::core::fmt::Formatter<'_>,
@@ -211,21 +215,19 @@ macro_rules! define_errors {
 }
 
 define_errors! {
+    #[fatal]
     pub enum Fatal {
         #[error("`{name}` failed: {errno}")]
         SyscallFailed { name: &'static str, errno: Errno },
         #[error("{0}")]
         InvalidPath(NulError),
-        #[error("child message too short (expected 9 bytes, got {0} bytes)")]
-        MessageTooShort(usize),
-        #[error("invalid child messaage (id={id}, status={status}])")]
-        InvalidMessage { id: u8, status: i64 },
-        #[error("ptrace failed in launched process with status {0}")]
-        FailedToPtraceChild(i64),
-        #[error("exec failed in launched process with status {0}")]
-        FailedToExecChild(i64),
+        #[error("invalid child messaage: {0}")]
+        InvalidChildMessage(FromUtf8Error),
+        #[error("child process failed: {0}")]
+        ChildFailed(String),
     }
 
+    #[non_fatal]
     pub enum NonFatal {
         #[error("cannot resume from '{0}' state")]
         CannotResume(State),
