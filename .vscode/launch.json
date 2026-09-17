@@ -1,0 +1,38 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug integration test 'debugger'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--test=debugger",
+                    "--package=ddb_test"
+                ]
+            },
+            "env": {
+                "CARGO_BIN_EXE_ddb_test": "target/debug/ddb_test"
+            }
+        },
+        {
+            "name": "Debug integration test 'process'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--test=process",
+                    "--package=ddb_test"
+                ]
+            },
+            "env": {
+                "CARGO_BIN_EXE_ddb_test": "target/debug/ddb_test"
+            }
+        }
+    ]
+}

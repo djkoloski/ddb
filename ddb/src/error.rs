@@ -1,6 +1,6 @@
 use std::{ffi::NulError, string::FromUtf8Error};
 
-use crate::{Errno, State};
+use crate::{Errno, RegisterTypeError, State};
 
 macro_rules! define_errors {
     (
@@ -225,6 +225,8 @@ define_errors! {
         InvalidChildMessage(FromUtf8Error),
         #[error("child process failed: {0}")]
         ChildFailed(String),
+        #[error("{0}")]
+        RegisterTypeError(RegisterTypeError),
     }
 
     #[non_fatal]

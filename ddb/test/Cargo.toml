@@ -3,12 +3,13 @@ name = "ddb_test"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+doctest = false
+
 [[bin]]
 name = "ddb_test"
 test = false
 
 [dependencies]
-libc.workspace = true
-
-[dev-dependencies]
 ddb.workspace = true
+libc.workspace = true
